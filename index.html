@@ -1,0 +1,349 @@
+
+<html>
+  <head>
+    <title>Bouncing(:</title>
+    <!link rel="stylesheet" href="main.css">
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {  background-color: rgb(173, 216, 230); padding: 3px; bottom: 0; margin: auto; }
+		canvas { margin-top: 50px; border: 1px solid black; padding-left: 0; padding-right: 0; margin-left: auto; margin-right: auto; display: block; }
+		h1 { margin-top: 0px; text-align: center; width: 100%; color: rgb(240, 60, 60); letter-spacing: -0.05em; }
+		h2 {text-align: center; color: rgb(60, 60, 240); }
+		form { background: #000; padding: 3px; position: fixed; top: 0; width: 100%; }
+		form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; }
+		form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+		
+		#messages { list-style-type: none; margin: 0; padding: 0; }
+		#messages li { padding: 5px 10px; }
+		#messages li:nth-child(odd) { background: #eee; }
+		<!--
+		comments
+		-->
+	</style>
+  </head>
+  <body>
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+	<canvas id="myCanvas"></canvas>
+	<form action="">
+		<input id="m" autocomplete="off" value="Enter your desired name here and press the 'Enter' button to join!" /><button>Enter</button>
+    </form>
+	<script>
+		var socket = io();
+	
+		var canvas = document.getElementById('myCanvas');
+		canvas.width = canvas.height = 600; //600
+		var g;
+		var topSpeed = 3; //182 3.2967 .7
+		var accelFactor = 1.2; //6000 .1 .14
+		var decelFactor = .88; //.98
+		var elasticCoeff = .7; //.7
+		var s = -2;
+		var increment = 20;
+		
+		var velX = 0;
+		var velY = 0;
+		var toAccelRight = false;
+		var toAccelLeft = false;
+		var toAccelUp = false;
+		var toAccelDown = false;
+		var toDecelX = false;
+		var toDecelY = false;
+	
+		var names = [];
+		var xPos = [];
+		var yPos = [];
+		var colors = [];
+		var scores = [];
+		
+		var id = 100000;
+		
+		var randomBalls = [];
+		
+		
+		
+		$('form').submit(function(){
+			if(id == 100000){
+				socket.emit('addMePlease', $('#m').val());
+				s = 0;
+			}else{
+				socket.emit('newNamePlease', $('#m').val());
+			}
+			$('#m').val('You can change your name (and color) by entering a new one!');
+			return false;
+		});
+		
+		socket.on('newInfoHere', function(msg){
+			if(id != 100000){
+				var x = xPos[id];
+				var y = yPos[id];
+				var score = s;
+			}
+			names = msg.nameList;
+			xPos = msg.xList;
+			yPos = msg.yList;
+			colors = msg.colorList;
+			scores = msg.scoreList;
+			if(id != 100000){
+				xPos[id] = x;
+				yPos[id] = y;
+				s = score;
+			}
+		});
+		
+		socket.on('heresYourId', function(msg){
+			id = msg;
+		});
+		/*
+		socket.on('collision', function(){
+			//uhmm...?
+		});
+		*/
+		socket.on('ballInfo', function(msg){
+			randomBalls = msg;
+		});
+		
+		if (canvas.getContext) {
+			g = canvas.getContext("2d");
+			setInterval(draw, increment);
+		}
+
+		function draw() {
+			s += 1;
+			if(s == -1){
+				addChatText("GAME", "This chat is only for current players. To begin chatting, join the game!");
+			}
+			
+			checkForWallBounce();
+			checkToAccel();
+			xPos[id] += velX;
+			yPos[id] += velY;
+			socket.emit('myInfoInc', { x: xPos[id], y: yPos[id], score: s });
+			
+			drawBackground();
+		
+			drawScores();
+			
+			for(var i = 0; i < randomBalls.length; i ++){
+				drawRandomBall(randomBalls[i].X, randomBalls[i].Y, randomBalls[i].R);
+			}
+			checkForCollisions();
+			
+			socket.emit('newInfoPlease');
+			for(var i = 0; i < names.length; i ++){
+				drawName(xPos[i], yPos[i], names[i]);
+			}
+			for(var i = 0; i < names.length; i ++){
+				drawBall(xPos[i], yPos[i], colors[i]);
+			}
+		}
+		
+		function drawScores(){
+			g.font = "10px sans-serif";
+			g.fillStyle = "rgb(0, 0, 0)";
+			g.fillText("Score List: ", 20, 20);
+			for(var i = 0; i < scores.length; i ++){
+				g.fillText(names[i] + ": " + scores[i], 20, 40 + 20 * i);
+			}
+			if(id != 100000){
+				g.font = "20px sans-serif";
+				g.fillText("Your Score: " + scores[id], 120, 20);
+			}
+		}
+		
+		function drawRandomBall(x, y, r){
+			g.fillStyle = "rgb(255, 0, 0)";
+			g.beginPath();
+			g.arc(x, y, r, 0, Math.PI * 2, true);
+			g.closePath();
+			g.fill();
+		}
+		
+		function checkForCollisions(){
+			for(var i = 0; i < randomBalls.length; i ++){
+				var dx = xPos[id] - randomBalls[i].X;
+				var dy = yPos[id] - randomBalls[i].Y;
+				var distance = Math.sqrt(dx * dx + dy * dy);
+				if(distance < (10 + randomBalls[i].R)){
+					if(s > 150){
+						s = 0;
+						velX = 0;
+						velY = 0;
+						xPos[id] = 300;
+						yPos[id] = 300;
+						socket.emit('myInfoInc', { x: xPos[id], y: yPos[id], score: s });
+					}
+				} 
+			}
+		}
+		
+		function drawName(x, y, name){
+			g.font = "10px sans-serif";
+			g.fillStyle = "rgb(0, 0, 0)";
+			g.fillText(name + "'s Ball", x - 10 - 5 - 2.2*name.length, y - 10 - 5);
+		}
+		
+		function drawBall(x, y, color){
+			g.beginPath();
+			g.fillStyle = color;
+			g.arc(x, y, 10, 0, Math.PI * 2, true);
+			g.closePath();
+			g.fill();
+		}
+		
+		function checkForWallBounce(){
+			if (xPos[id] > (600 - 10)) {
+				xPos[id] = 600 - 10;
+				velX *= -elasticCoeff;
+				toAccelRight = false;
+				toDecelX = true;
+			} else if (xPos[id] <= 10) {
+				xPos[id] = 10;
+				velX *= -elasticCoeff;
+				toAccelLeft = false;
+				toDecelX = true;
+			}
+			if (yPos[id] > (600 - 10)) {
+				yPos[id] = 600 - 10;
+				velY *= -elasticCoeff;
+				toAccelDown = false;
+				toDecelY = true;
+			} else if (yPos[id] <= 10) {
+				yPos[id] = 10;
+				velY *= -elasticCoeff;
+				toAccelUp = false;
+				toDecelY = true;
+			}
+		}
+		
+		function checkToAccel(){
+			if (toAccelLeft) {
+				if (velX > -topSpeed) {
+					velX -= accelFactor;
+				} else {
+					velX = -topSpeed;
+				}
+			} else if (toAccelRight) {
+				if (velX < topSpeed) {
+					velX += accelFactor;
+				} else {
+					velX = topSpeed;
+				}
+			}
+			if (toAccelUp) {
+				if (velY > -topSpeed) {
+					velY -= accelFactor;
+				} else {
+					velY = -topSpeed;
+				}
+			} else if (toAccelDown) {
+				if (velY < topSpeed) {
+					velY += accelFactor;
+				} else {
+					velY = topSpeed;
+				}
+			}
+			if (toDecelX) {
+				velX *= decelFactor;
+			}
+			if (toDecelY) {
+				velY *= decelFactor;
+			}
+		}
+
+		function drawBackground() {
+			g.fillStyle = "rgb(0, 200, 200)";
+			g.fillRect(0, 0, 600, 600);
+		}
+			
+		
+		window.onkeydown = function(e) {
+			var key = e.keyCode ? e.keyCode : e.which;
+			if (key == 37) { //left
+				toAccelRight = false;
+				toDecelX = false;
+				toAccelLeft = true;
+			}
+			if (key == 38) { //up
+				toAccelDown = false;
+				toDecelY = false;
+				toAccelUp = true;
+			}
+			if (key == 39) { //right
+				toAccelLeft = false;
+				toDecelX = false;
+				toAccelRight = true;
+			}
+			if (key == 40) { //down
+				toAccelUp = false;
+				toDecelY = false;
+				toAccelDown = true;
+			}
+			
+		}
+		window.onkeyup = function(e) {
+			var key = e.keyCode ? e.keyCode : e.which;
+			if (key == 37) { //left
+				toAccelLeft = false;
+				toDecelX = true;
+			}
+			if (key == 38) { //up
+				toAccelUp = false;
+				toDecelY = true;
+			}
+			if (key == 39) { //right
+				toAccelRight = false;
+				toDecelX = true;
+			}
+			if (key == 40) { //down
+				toAccelDown = false;
+				toDecelY = true;
+			}
+		}
+		
+		function addChatText(by,text){
+			var ca = document.getElementById('chatArea');
+			var p = document.createElement( "div" );
+			if(by!=null){
+				var span = document.createElement( "span" );
+				span.innerHTML = by + ': ';
+				p.appendChild(span); 
+			}
+			var htmlText = document.createElement ("span");
+			htmlText.innerHTML = text;
+			p.appendChild (htmlText);
+			ca.appendChild(p);
+			ca.scrollTop = 50000;
+		}
+		
+		function searchKeyPress(e){
+			// look for window.event in case event isn't passed in
+			e = e || window.event;
+			if (e.keyCode == 13) {
+				document.getElementById('b').click();
+				return false;
+			}
+			return true;
+		}
+		
+		function sendText(){
+			if(id != 100000){
+				socket.emit('newMessageToSend', $('#chatLine').val());
+			}else{
+				addChatText("GAME", "You can't chat until you make a ball!");
+			}
+			$('#chatLine').val('');
+		}
+		socket.on('newMessageToAdd', function(msg){
+			if(id != 100000){
+				addChatText(msg.name, msg.message);
+			}
+		});
+	</script>
+	<h1>Use Arrow Keys to Move Ball</h1>
+	<h2>Chat Below:</h2>
+	<div id='chatArea' style='border:1px solid #aaa; width: 100%; height: 150px; overflow:auto; font-size: 14px; font-family: "Comic Sans MS";'></div>
+	<input id='chatLine' type='text' onkeypress="return searchKeyPress(event);" value='' style='width: 90%;'>
+	<button id = 'b' onclick='sendText()' style='width: 9%'>Enter</button>
+  </body>
+</html>
